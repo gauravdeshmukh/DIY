@@ -1,16 +1,17 @@
 # ESP32 Push Button LED Controller
 
-A clean, modular ESP32 firmware project built with the **ESP-IDF** framework on **PlatformIO**. It toggles an LED on and off whenever a physical push button is pressed, complete with software debouncing and active-LOW internal pull-up configuration.
+A clean, efficient, and event-driven ESP32 firmware project built with the **ESP-IDF** framework on **PlatformIO**. It controls an LED via a push button using **hardware interrupts (GPIO ISR)** and **FreeRTOS task notifications**, eliminating redundant CPU looping and achieving **0% idle CPU utilization**.
 
 ---
 
 ## Features
 
+- **Hardware Interrupt-Driven**: Senses button presses via falling-edge GPIO interrupts (`GPIO_INTR_NEGEDGE`) rather than continuous polling.
+- **Zero Redundant Looping (0% Idle CPU)**: The worker task sleeps indefinitely with `portMAX_DELAY` until notified by the hardware ISR.
+- **Bounce Storm Prevention**: Disables the GPIO interrupt inside the ISR and re-enables it only after debouncing, completely preventing interrupt storms from mechanical switch chatter.
 - **Toggle Logic**: Each press of the momentary push button flips the LED state (`OFF` $\rightarrow$ `ON` $\rightarrow$ `OFF`).
-- **Software Debouncing**: Filters out physical switch contact chatter (50 ms window).
-- **Hold-Down Guard**: Waits for the button to be released before allowing the next toggle, preventing rapid flickering.
+- **Hold-Down Guard**: Waits for the button to be released before allowing the next toggle, preventing rapid flickering while held.
 - **Internal Pull-up**: Uses the ESP32's built-in pull-up resistor on the button pin—no external pull-up resistor is required.
-- **Modular Code Architecture**: Decouples button sensing (`is_button_pressed()`) from the application logic (`app_main()`).
 - **Structured Serial Logging**: Outputs timestamped system logs at `115200` baud using `ESP_LOGI`.
 
 ---

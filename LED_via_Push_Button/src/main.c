@@ -4,6 +4,7 @@
 #include "freertos/task.h"
 #include "driver/gpio.h"
 #include "esp_log.h"
+#include "esp_attr.h"
 
 #define LED_PIN             GPIO_NUM_25
 #define BUTTON_PIN          GPIO_NUM_32
@@ -11,35 +12,64 @@
 
 static const char *TAG = "BUTTON_LED";
 
+// FreeRTOS task handle for the button worker task
+static TaskHandle_t button_task_handle = NULL;
+
+// Current state of the LED (0: OFF, 1: ON)
+static int led_state = 0;
+
 /**
- * @brief Checks if a button (active-LOW) was pressed.
- *        Handles software debouncing and waits for release.
- *
- * @param pin The GPIO pin connected to the button.
- * @return true if a valid button press occurred, false otherwise.
+ * @brief Interrupt Service Routine (ISR) triggered on button press (falling edge).
+ *        Runs in ISR context. Disables the GPIO interrupt to prevent bouncing storms
+ *        and wakes up the worker task.
  */
-bool is_button_pressed(gpio_num_t pin)
+static void IRAM_ATTR button_isr_handler(void *arg)
 {
-    if (gpio_get_level(pin) == 0) {
-        // Debounce delay
-        ESP_LOGI(TAG, "ESP32 waiting on debounce.");
+    gpio_num_t pin = (gpio_num_t)(uint32_t)arg;
+
+    // Temporarily disable interrupt on this pin to eliminate contact-bounce storms
+    gpio_intr_disable(pin);
+
+    // Notify the worker task to process the press event
+    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+    vTaskNotifyGiveFromISR(button_task_handle, &xHigherPriorityTaskWoken);
+    portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+}
+
+/**
+ * @brief Worker task that processes button presses in task context.
+ *        Sleeps with 0% CPU consumption until an interrupt arrives.
+ */
+static void button_task(void *pvParameters)
+{
+    while (1) {
+        // Block indefinitely until notified by the ISR (consumes 0% CPU while waiting)
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+
+        // Debounce delay to let physical switch contacts settle
         vTaskDelay(pdMS_TO_TICKS(DEBOUNCE_TIME_MS));
 
-        // Confirm button is still pressed
-        if (gpio_get_level(pin) == 0) {
-            ESP_LOGI(TAG, "ESP32 again got 0");
-            // Wait for release to prevent repeated triggers
-            while (gpio_get_level(pin) == 0) {
-                ESP_LOGI(TAG, "ESP32 waiting inside while loop");
+        // Verify the pin is still LOW (genuine human press)
+        if (gpio_get_level(BUTTON_PIN) == 0) {
+            led_state = !led_state;
+            gpio_set_level(LED_PIN, led_state);
+            ESP_LOGI(TAG, "Button pressed (Interrupt)! LED is now %s", led_state ? "ON" : "OFF");
+
+            // Wait until button is released to prevent re-triggering while held
+            while (gpio_get_level(BUTTON_PIN) == 0) {
                 vTaskDelay(pdMS_TO_TICKS(10));
             }
-            // Debounce on release
-            ESP_LOGI(TAG, "ESP32 waiting outside while loop.");
+
+            // Release debounce
             vTaskDelay(pdMS_TO_TICKS(DEBOUNCE_TIME_MS));
-            return true;
         }
+
+        // Clear any spurious notifications that arrived during the debounce period
+        ulTaskNotifyTake(pdTRUE, 0);
+
+        // Re-enable GPIO interrupt for the next button press
+        gpio_intr_enable(BUTTON_PIN);
     }
-    return false;
 }
 
 void app_main(void)
@@ -47,27 +77,26 @@ void app_main(void)
     // Configure LED pin as output
     gpio_reset_pin(LED_PIN);
     gpio_set_direction(LED_PIN, GPIO_MODE_OUTPUT);
+    gpio_set_level(LED_PIN, led_state);
 
-    // Configure Button pin as input (gpio_reset_pin already enables internal pull-up)
+    // Configure Button pin as input with internal pull-up (Active-LOW)
     gpio_reset_pin(BUTTON_PIN);
     gpio_pullup_en(BUTTON_PIN);
     gpio_set_direction(BUTTON_PIN, GPIO_MODE_INPUT);
 
-    // Initial LED state: OFF
-    int led_state = 0;
-    gpio_set_level(LED_PIN, led_state);
+    // Configure interrupt trigger on falling edge (Active-LOW press: 1 -> 0)
+    gpio_set_intr_type(BUTTON_PIN, GPIO_INTR_NEGEDGE);
 
-    ESP_LOGI(TAG, "ESP32 Button-controlled LED initialized.");
+    ESP_LOGI(TAG, "ESP32 Interrupt-driven Button & LED initialized.");
     ESP_LOGI(TAG, "LED Pin: GPIO %d | Button Pin: GPIO %d", LED_PIN, BUTTON_PIN);
     ESP_LOGI(TAG, "Initial LED State: OFF");
 
-    while (1) {
-        if (is_button_pressed(BUTTON_PIN)) {
-            led_state = !led_state;
-            gpio_set_level(LED_PIN, led_state);
-            ESP_LOGI(TAG, "Button pressed! LED is now %s", led_state ? "ON" : "OFF");
-        }
+    // Create the button worker task (blocks until interrupt notifies it)
+    xTaskCreate(button_task, "button_task", 2048, NULL, 10, &button_task_handle);
 
-        vTaskDelay(pdMS_TO_TICKS(10));
-    }
+    // Install GPIO ISR service and attach handler
+    gpio_install_isr_service(0);
+    gpio_isr_handler_add(BUTTON_PIN, button_isr_handler, (void *)(uint32_t)BUTTON_PIN);
+
+    // app_main exits; button_task continues running purely event-driven
 }
