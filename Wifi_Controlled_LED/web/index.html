@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESP32 LED Controller</title>
+    <link rel="stylesheet" href="/style.css">
+    <script>
+        // Catch and display any errors directly on screen
+        window.onerror = function(msg, url, lineNo) {
+            console.error("Global Error:", msg, "Line:", lineNo);
+            const box = document.getElementById("log-box");
+            if (box) {
+                box.innerHTML = `<span style="color:#ff5252;">[ERR] ${msg} (L${lineNo})</span><br>` + box.innerHTML;
+            }
+            const status = document.getElementById("status");
+            if (status) {
+                status.textContent = "Error: " + msg;
+                status.style.color = "#ff5252";
+            }
+            return false;
+        };
+    </script>
+</head>
+<body>
+    <div class="card">
+        <h2>LED Toggle</h2>
+        <div id="status" class="status-indicator">State: Ready</div>
+        <button class="btn r" onclick="setLED(1, 0, 0)">Red</button>
+        <button class="btn g" onclick="setLED(0, 1, 0)">Green</button>
+        <button class="btn b" onclick="setLED(0, 0, 1)">Blue</button>
+        <button class="btn off" onclick="setLED(0, 0, 0)">Turn OFF</button>
+        <div class="log-container">
+            <div class="log-title">Live Debug Logs:</div>
+            <div id="log-box" class="log-box">Ready.</div>
+        </div>
+    </div>
+    <script src="/app.js"></script>
+</body>
+</html>
