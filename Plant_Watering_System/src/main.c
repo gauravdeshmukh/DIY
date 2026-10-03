@@ -15,7 +15,7 @@ void app_main(void)
 {
     ESP_LOGI(TAG, "ESP32 Woke up!");
 
-    // 1. Reset and configure GPIO 18 as output
+    // 1. Reset and configure GPIO 25 as output
     gpio_reset_pin(PUMP_GPIO);
     gpio_set_direction(PUMP_GPIO, GPIO_MODE_OUTPUT);
 
